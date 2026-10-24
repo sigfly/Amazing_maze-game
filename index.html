@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>WALK THE MAZE — Sigfly</title>
+<style>
+:root{--paper:#F2DFB5;--cream:#FFF3D9;--mustard:#EABF58;--red:#E44D2C;--blue:#1F426A;--ink:#191919;--brick:#B83E27}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.45 system-ui,sans-serif}
+main{max-width:1020px;margin:auto;padding:22px 18px 50px}.eyebrow{font-size:12px;font-weight:900;letter-spacing:.17em;color:var(--brick)}
+h1{font:900 clamp(42px,9vw,86px)/.94 Impact,'Arial Black',system-ui,sans-serif;letter-spacing:-.025em;margin:12px 0 15px}h1 span{color:var(--red)}
+.sub{max-width:630px;margin:0 0 20px;color:var(--blue);font-weight:600}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:18px;align-items:start}
+.panel{background:var(--cream);border:3px solid var(--ink);border-radius:7px;padding:12px}
+canvas{width:100%;aspect-ratio:1;display:block;background:var(--cream);touch-action:none}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{border:3px solid var(--ink);background:var(--cream);border-radius:6px;min-height:46px;padding:9px 13px;font:800 14px system-ui;cursor:pointer;color:var(--ink)}
+button.primary{background:var(--red);color:white}button.secondary{background:var(--mustard)}button:focus-visible,input:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat{background:var(--paper);border:2px solid var(--ink);padding:10px}.stat b{display:block;font:900 23px system-ui}.stat small{font-size:11px;font-weight:900;letter-spacing:.09em}
+h2{font:900 20px system-ui;margin:18px 0 8px}.instructions{font-size:14px}.instructions p{margin:7px 0 12px}
+#status{font-size:13px;font-weight:800;color:var(--blue);margin:10px 0;min-height:40px}
+.mode{display:flex;gap:7px;flex-wrap:wrap}.mode button{flex:1;font-size:12px}.mode button[aria-pressed=true]{background:var(--blue);color:white}
+#pad{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;max-width:210px;margin:12px auto 0;touch-action:none}#pad button{padding:6px;min-height:50px;background:var(--mustard)}#pad .blank{visibility:hidden}
+footer{margin-top:24px;font-size:13px}a{color:var(--blue);font-weight:800}
+@media(max-width:720px){.layout{grid-template-columns:1fr}.panel{padding:9px}.stats{grid-template-columns:repeat(4,1fr)}.stat{padding:7px}.stat b{font-size:18px}.stat small{font-size:9px}main{padding:18px 12px 35px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style></head><body><main>
+<div class="eyebrow">SIGFLY / POCKET ADVENTURES / NO. 01</div>
+<h1>WALK <span>THE</span><br>MAZE.</h1>
+<p class="sub">A tiny person. A giant labyrinth. Your real-world steps and turns become their journey.</p>
+<div class="layout"><section class="panel" aria-label="Maze game">
+<canvas id="game" width="720" height="720" aria-label="Top-down maze with human avatar, entrance and exit"></canvas>
+<div class="toolbar"><button class="primary" id="start">ENABLE MOTION</button><button class="secondary" id="calibrate">RE-CENTER</button><button id="reset">NEW MAZE</button></div>
+<div id="status" role="status" aria-live="polite">Ready. Enable motion on your phone, or use the on-screen controls.</div>
+</section><aside class="panel">
+<div class="eyebrow">FIELD NOTES</div><div class="stats"><div class="stat"><small>STEPS</small><b id="steps">0</b></div><div class="stat"><small>TIME</small><b id="time">0:00</b></div><div class="stat"><small>HEADING</small><b id="heading">N</b></div><div class="stat"><small>LEVEL</small><b id="level">01</b></div></div>
+<h2>HOW TO PLAY</h2><div class="instructions"><p><b>1. Hold your phone</b> upright, screen facing you.</p><p><b>2. Walk in place</b> or take real steps. Motion bumps move the little explorer forward.</p><p><b>3. Turn your body</b> with the phone to steer through the corridors.</p><p><b>4. Reach the red flag</b> to escape the maze.</p><p>Motion needs HTTPS and your browser's sensor permission. Stay aware of your surroundings; walking in place is safest.</p></div>
+<h2>CONTROL MODE</h2><div class="mode"><button id="motionMode" aria-pressed="true">BODY MOTION</button><button id="manualMode" aria-pressed="false">MANUAL</button></div>
+<div id="pad" aria-label="Manual controls"><button class="blank" tabindex="-1"></button><button data-key="forward" aria-label="Move forward">↑</button><button class="blank" tabindex="-1"></button><button data-key="left" aria-label="Turn left">↶</button><button data-key="back" aria-label="Move backward">↓</button><button data-key="right" aria-label="Turn right">↷</button></div>
+<p class="instructions">Manual: hold arrows or use <b>W / A / S / D</b>. The compass follows your avatar, not the phone screen.</p>
+</aside></div><footer>MADE FOR MOVEMENT · <a href="https://sigfly.github.io/">SIGFLY APP HUB ↗</a></footer></main>
+<script>
+(()=>{'use strict';
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),$=id=>document.getElementById(id);
+const N=15,TAU=Math.PI*2,dirs=[[0,-1],[1,0],[0,1],[-1,0]];
+let cells=[],px=.5,py=.5,angle=-Math.PI/2,steps=0,level=1,started=0,finished=false,mode='motion',sensor=false;
+let lastFrame=performance.now(),lastMotion=0,lastStep=0,accAvg=0,accDev=0,stepImpulse=0,headingBase=null,headingPrev=null,gyroLast=0,orientationSeen=false;
+let keys={forward:false,back:false,left:false,right:false};
+const setStatus=s=>$('status').textContent=s;
+function generate(){cells=Array.from({length:N*N},()=>[1,1,1,1]);let seen=new Set([0]),stack=[0];while(stack.length){let a=stack[stack.length-1],x=a%N,y=Math.floor(a/N),options=[];dirs.forEach(([dx,dy],d)=>{let xx=x+dx,yy=y+dy,b=yy*N+xx;if(xx>=0&&xx<N&&yy>=0&&yy<N&&!seen.has(b))options.push([b,d])});if(!options.length){stack.pop();continue}let [b,d]=options[Math.floor(Math.random()*options.length)];cells[a][d]=0;cells[b][(d+2)%4]=0;seen.add(b);stack.push(b)}px=.5;py=.5;angle=-Math.PI/2;steps=0;finished=false;started=performance.now();stepImpulse=0;$('steps').textContent='0';$('level').textContent=String(level).padStart(2,'0')}
+function clear(x,y,r=.20){if(x<r||y<r||x>N-r||y>N-r)return false;let cx=Math.floor(x),cy=Math.floor(y),c=cells[cy*N+cx];if(x-cx<r&&c[3])return false;if(cx+1-x<r&&c[1])return false;if(y-cy<r&&c[0])return false;if(cy+1-y<r&&c[2])return false;return true}
+function move(dist){let dx=Math.cos(angle)*dist,dy=Math.sin(angle)*dist;let chunks=Math.ceil(Math.abs(dist)/.055);for(let i=0;i<chunks;i++){let xx=px+dx/chunks,yy=py+dy/chunks;if(clear(xx,py))px=xx;if(clear(px,yy))py=yy}if(!finished&&Math.hypot(px-(N-.5),py-(N-.5))<.47){finished=true;setStatus('MAZE COMPLETE! Fantastic wandering. Tap NEW MAZE to go again.');$('start').textContent='YOU ESCAPED!'}}
+function step(){if(finished)return;steps++;$('steps').textContent=steps;move(.26)}
+function turn(a){angle=(angle+a+TAU)%TAU}
+function screenAngle(){return (screen.orientation&&Number.isFinite(screen.orientation.angle)?screen.orientation.angle:window.orientation||0)*Math.PI/180}
+function onOrientation(e){if(mode!=='motion'||!sensor)return;let heading=null;if(typeof e.webkitCompassHeading==='number'&&Number.isFinite(e.webkitCompassHeading))heading=-e.webkitCompassHeading*Math.PI/180;else if(e.alpha!=null&&Number.isFinite(e.alpha))heading=-e.alpha*Math.PI/180-screenAngle();if(heading===null)return;orientationSeen=true;if(headingPrev===null){headingPrev=heading;return}let delta=((heading-headingPrev+Math.PI)%TAU+TAU)%TAU-Math.PI;headingPrev=heading;if(Math.abs(delta)<.75)turn(delta)}
+function onMotion(e){if(mode!=='motion'||!sensor)return;let a=e.accelerationIncludingGravity||e.acceleration;if(a&&[a.x,a.y,a.z].every(Number.isFinite)){let mag=Math.hypot(a.x,a.y,a.z);if(!accAvg)accAvg=mag;accAvg=.92*accAvg+.08*mag;let deviation=Math.abs(mag-accAvg);accDev=.9*accDev+.1*deviation;let now=performance.now();if(deviation>Math.max(1.35,accDev*1.7)&&now-lastStep>320){lastStep=now;step();lastMotion=now}}if(!orientationSeen&&e.rotationRate&&Number.isFinite(e.rotationRate.alpha)){let now=performance.now(),dt=Math.min((now-gyroLast)/1000,.08);if(gyroLast&&dt>0)turn(-e.rotationRate.alpha*Math.PI/180*dt);gyroLast=now}}
+async function enable(){if(!window.isSecureContext){setStatus('Motion sensors require HTTPS (or localhost). Serve this HTML from a secure site.');return}try{if(typeof DeviceMotionEvent==='undefined'&&typeof DeviceOrientationEvent==='undefined'){setStatus('No motion sensors exposed by this browser. Use MANUAL controls.');return}
+for(let C of [window.DeviceMotionEvent,window.DeviceOrientationEvent])if(C&&typeof C.requestPermission==='function'){let result=await C.requestPermission();if(result!=='granted')throw Error('Sensor permission denied')}
+window.addEventListener('devicemotion',onMotion);window.addEventListener('deviceorientation',onOrientation);sensor=true;mode='motion';updateMode();headingPrev=null;orientationSeen=false;accAvg=0;gyroLast=0;setStatus('Motion enabled. Walk in place to advance; rotate with your phone to turn.');$('start').textContent='MOTION ACTIVE'}catch(e){setStatus('Motion unavailable: '+e.message+'. Try MANUAL mode.')}}
+function updateMode(){$('motionMode').setAttribute('aria-pressed',mode==='motion');$('manualMode').setAttribute('aria-pressed',mode==='manual')}
+$('start').addEventListener('click',enable);$('calibrate').addEventListener('click',()=>{headingPrev=null;angle=-Math.PI/2;accAvg=0;setStatus('Heading re-centered. Avatar faces north.');});$('reset').addEventListener('click',()=>{level++;generate();$('start').textContent=sensor?'MOTION ACTIVE':'ENABLE MOTION';setStatus('New maze. Find the flag!')});
+$('motionMode').onclick=()=>{mode='motion';updateMode();setStatus(sensor?'Body motion active.':'Tap ENABLE MOTION to grant sensor access.')};$('manualMode').onclick=()=>{mode='manual';updateMode();setStatus('Manual controls active. Use arrows or W/A/S/D.')};
+document.querySelectorAll('[data-key]').forEach(b=>{let k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();mode='manual';updateMode();keys[k]=true;b.setPointerCapture(e.pointerId)});for(let name of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(name,()=>keys[k]=false)});
+document.addEventListener('keydown',e=>{let k=({w:'forward',ArrowUp:'forward', s:'back',ArrowDown:'back',a:'left',ArrowLeft:'left',d:'right',ArrowRight:'right'})[e.key];if(k){e.preventDefault();mode='manual';updateMode();keys[k]=true}});document.addEventListener('keyup',e=>{let k=({w:'forward',ArrowUp:'forward',s:'back',ArrowDown:'back',a:'left',ArrowLeft:'left',d:'right',ArrowRight:'right'})[e.key];if(k)keys[k]=false});window.addEventListener('blur',()=>Object.keys(keys).forEach(k=>keys[k]=false));
+function draw(t){let W=canvas.width,pad=27,cell=(W-2*pad)/N;ctx.fillStyle='#FFF3D9';ctx.fillRect(0,0,W,W);
+ctx.fillStyle='#F2DFB5';ctx.fillRect(pad,pad,N*cell,N*cell);
+ctx.fillStyle='#EABF58';ctx.fillRect(pad+2,pad+2,cell-4,cell-4);
+ctx.fillStyle='#E44D2C';ctx.fillRect(pad+(N-1)*cell+3,pad+(N-1)*cell+3,cell-6,cell-6);
+ctx.strokeStyle='#191919';ctx.lineWidth=5;ctx.lineCap='square';ctx.beginPath();
+for(let y=0;y<N;y++)for(let x=0;x<N;x++){let c=cells[y*N+x],xx=pad+x*cell,yy=pad+y*cell;if(c[0]){ctx.moveTo(xx,yy);ctx.lineTo(xx+cell,yy)}if(c[3]){ctx.moveTo(xx,yy);ctx.lineTo(xx,yy+cell)}if(y===N-1&&c[2]){ctx.moveTo(xx,yy+cell);ctx.lineTo(xx+cell,yy+cell)}if(x===N-1&&c[1]){ctx.moveTo(xx+cell,yy);ctx.lineTo(xx+cell,yy+cell)}}ctx.stroke();
+let fx=pad+(N-.5)*cell,fy=pad+(N-.5)*cell;ctx.strokeStyle='#191919';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(fx,fy+12);ctx.lineTo(fx,fy-13);ctx.stroke();ctx.fillStyle='#E44D2C';ctx.beginPath();ctx.moveTo(fx,fy-13);ctx.lineTo(fx+16,fy-7);ctx.lineTo(fx,fy);ctx.fill();
+let x=pad+px*cell,y=pad+py*cell;ctx.save();ctx.translate(x,y);ctx.rotate(angle+Math.PI/2);
+ctx.fillStyle='rgba(25,25,25,.15)';ctx.beginPath();ctx.ellipse(3,5,12,15,0,0,TAU);ctx.fill();
+ctx.fillStyle='#1F426A';ctx.strokeStyle='#191919';ctx.lineWidth=2.2;
+ctx.beginPath();ctx.ellipse(-9,5,4.2,7,-.25,0,TAU);ctx.ellipse(9,5,4.2,7,.25,0,TAU);ctx.fill();ctx.stroke();
+ctx.fillStyle='#E44D2C';ctx.beginPath();ctx.ellipse(0,1,10,11,0,0,TAU);ctx.fill();ctx.stroke();
+ctx.fillStyle='#F2DFB5';ctx.beginPath();ctx.arc(0,-6,7.5,0,TAU);ctx.fill();ctx.stroke();
+ctx.fillStyle='#191919';ctx.beginPath();ctx.arc(-2.5,-8,1,0,TAU);ctx.arc(2.5,-8,1,0,TAU);ctx.fill();
+ctx.fillStyle='#EABF58';ctx.beginPath();ctx.moveTo(-6,-12);ctx.lineTo(0,-19);ctx.lineTo(6,-12);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+ctx.fillStyle='#191919';ctx.font='900 12px system-ui';ctx.fillText('START',pad+5,pad+cell+15);ctx.fillText('EXIT',W-pad-37,W-pad-cell-9)}
+function frame(t){let dt=Math.min((t-lastFrame)/1000,.05);lastFrame=t;if(!finished){if(keys.left)turn(-2.4*dt);if(keys.right)turn(2.4*dt);if(keys.forward)move(2.1*dt);if(keys.back)move(-1.4*dt)}draw(t);let a=((angle+Math.PI/2)%TAU+TAU)%TAU;let headings=['N','NE','E','SE','S','SW','W','NW'];$('heading').textContent=headings[Math.round(a/(Math.PI/4))%8];let secs=Math.floor((t-started)/1000);$('time').textContent=Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0');requestAnimationFrame(frame)}
+generate();requestAnimationFrame(frame);
+})();
+</script></body></html>
